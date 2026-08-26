@@ -183,6 +183,32 @@
     cursor:pointer;font-family:inherit;
   }
 
+  /* ===== 음식 화면 ===== */
+  .food-form{display:flex;flex-direction:column;gap:8px}
+  .food-form input{
+    min-height:48px;padding:0 14px;
+    border:1.5px solid var(--line);border-radius:14px;
+    font-size:15px;background:#fff;color:var(--ink);font-family:inherit;
+  }
+  .food-form input:focus{outline:2px solid var(--green);border-color:transparent}
+  .food-form button{
+    min-height:50px;border:none;border-radius:14px;
+    background:var(--green);color:#fff;font-size:15px;font-weight:700;
+    cursor:pointer;font-family:inherit;
+  }
+  .dd{
+    font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;
+    background:#EFEBDF;color:#7A7461;white-space:nowrap;
+  }
+  .dd.warn{background:#FBF0D9;color:#B07B2E}
+  .dd.bad{background:var(--coral-bg);color:var(--coral)}
+  .eat-btn{
+    min-height:44px;padding:0 14px;border:none;border-radius:12px;
+    background:var(--green);color:#fff;font-size:14px;font-weight:700;
+    cursor:pointer;font-family:inherit;white-space:nowrap;
+  }
+  .eat-btn:active{background:var(--green-deep)}
+
   /* ===== 기록 화면 ===== */
   .summary{
     background:linear-gradient(135deg,#4C7A5A,#5E8E6C);
@@ -285,6 +311,7 @@
 <nav>
   <button data-tab="today" class="on"><span class="ic">🌱</span>오늘</button>
   <button data-tab="upcoming"><span class="ic">📅</span>예정</button>
+  <button data-tab="foods"><span class="ic">🥕</span>음식</button>
   <button data-tab="manage"><span class="ic">✏️</span>관리</button>
   <button data-tab="history"><span class="ic">📖</span>기록</button>
 </nav>
@@ -304,6 +331,7 @@
       <label>반복 주기</label>
       <div class="cyc-row">
         <select id="fCycType">
+          <option value="한번">한 번만 (반복 없음)</option>
           <option value="매일">매일</option>
           <option value="일" selected>N일마다</option>
           <option value="주">N주마다</option>
@@ -346,6 +374,7 @@ const DOW = ["일","월","화","수","목","금","토"];
 
 let tasks = [];
 let logs = [];
+let foods = [];  // 음식 목록 { id, name, expiry }
 let categories = DEFAULT_CATS.slice();  // 서버에서 불러오면 덮어씀
 let tab = "today";
 let loading = true;
@@ -382,6 +411,7 @@ function relLabel(s){
 /* ---------- 주기 계산 ---------- */
 function cycleText(t){
   const v = Number(t.cycleValue) || 1;
+  if (t.cycleType === "한번") return "한 번만";
   if (t.cycleType === "매일") return "매일";
   if (t.cycleType === "일") return v + "일마다";
   if (t.cycleType === "주") return v + "주마다";
@@ -443,7 +473,7 @@ function toast(msg){
   toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
 }
 
-/* ---------- API (백그라운드 저장) ---------- */
+/* ---------- API (백그라운드 저장: 순차 처리 + 자동 재시도) ---------- */
 async function loadAll(){
   loading = true;
   render();
@@ -453,43 +483,58 @@ async function loadAll(){
     if (!data.ok) throw new Error("서버 응답 오류");
     tasks = Array.isArray(data.tasks) ? data.tasks : [];
     logs = Array.isArray(data.logs) ? data.logs : [];
+    foods = Array.isArray(data.foods) ? data.foods : [];
     if (Array.isArray(data.categories) && data.categories.length > 0){
       categories = data.categories.map(String);
     }
   }catch(e){
     toast("데이터를 불러오지 못했어요. 새로고침 해주세요");
-    tasks = []; logs = [];
+    tasks = []; logs = []; foods = [];
   }
   loading = false;
   render();
 }
-function saveTasks(){
-  fetch(API, { method:"POST", body: JSON.stringify({ action:"saveTasks", tasks: tasks }) })
-    .then(r => r.json())
-    .then(d => { if (!d.ok) toast("저장에 실패했어요"); })
-    .catch(() => toast("저장에 실패했어요 (연결 확인)"));
+// 저장 요청을 한 줄로 세워서 순서대로 보내고, 실패하면 1.5초 후 한 번 더 시도
+let postChain = Promise.resolve();
+function post(payload, failMsg){
+  postChain = postChain.then(async () => {
+    const send = async () => {
+      const r = await fetch(API, { method:"POST", body: JSON.stringify(payload) });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error || "save failed");
+    };
+    try{
+      await send();
+    }catch(e1){
+      await new Promise(res => setTimeout(res, 1500));
+      try{ await send(); }
+      catch(e2){ toast(failMsg); }
+    }
+  });
 }
-function saveCategories(){
-  fetch(API, { method:"POST", body: JSON.stringify({ action:"saveCategories", categories: categories }) })
-    .then(r => r.json())
-    .then(d => { if (!d.ok) toast("카테고리 저장에 실패했어요"); })
-    .catch(() => toast("카테고리 저장에 실패했어요 (연결 확인)"));
-}
+function saveTasks(){ post({ action:"saveTasks", tasks: tasks }, "저장에 실패했어요 (연결 확인)"); }
+function saveCategories(){ post({ action:"saveCategories", categories: categories }, "카테고리 저장에 실패했어요"); }
+function saveFoods(){ post({ action:"saveFoods", foods: foods }, "음식 저장에 실패했어요"); }
 function addLog(name, type){
   const log = { date: todayStr(), name: name, type: type };
   logs.unshift(log);
-  fetch(API, { method:"POST", body: JSON.stringify({ action:"addLog", log: log }) })
-    .catch(() => toast("기록 저장에 실패했어요"));
+  post({ action:"addLog", log: log }, "기록 저장에 실패했어요");
 }
 
 /* ---------- 할 일 동작 ---------- */
 function doComplete(id){
   const t = tasks.find(x => x.id === id);
   if (!t) return;
-  t.nextDate = nextFromToday(t);
   addLog(t.name, "완료");
-  render();
-  toast("완료! " + relLabel(t.nextDate) + " 다시 알려드릴게요 🌿");
+  if (t.cycleType === "한번"){
+    tasks = tasks.filter(x => x.id !== id);
+    render();
+    toast("완료! 한 번짜리 일이라 목록에서 정리했어요 ✨");
+  }else{
+    t.nextDate = nextFromToday(t);
+    render();
+    toast("완료! " + relLabel(t.nextDate) + " 다시 알려드릴게요 🌿");
+  }
   saveTasks();
 }
 function doPostpone(id, days){
@@ -536,6 +581,39 @@ function delCategory(name){
   saveCategories();
 }
 
+/* ---------- 음식 동작 ---------- */
+function foodDday(expiry){
+  const n = diffDays(expiry, todayStr());
+  if (n < 0) return { txt: (-n) + "일 지남", cls: "bad" };
+  if (n === 0) return { txt: "오늘까지", cls: "bad" };
+  if (n <= 3) return { txt: "D-" + n, cls: "warn" };
+  return { txt: "D-" + n, cls: "" };
+}
+function addFood(){
+  const nameEl = document.getElementById("foodName");
+  const expEl = document.getElementById("foodExp");
+  const name = (nameEl.value || "").trim();
+  const exp = expEl.value;
+  if (!name){ toast("음식 이름을 입력해주세요"); return; }
+  if (!exp){ toast("유통기한을 선택해주세요"); return; }
+  foods.push({
+    id: "f" + Date.now() + Math.floor(Math.random()*1000),
+    name: name,
+    expiry: exp
+  });
+  render();
+  toast('"' + name + '" 등록! 유통기한 챙겨드릴게요 🥕');
+  saveFoods();
+}
+function eatFood(id){
+  const f = foods.find(x => x.id === id);
+  if (!f) return;
+  foods = foods.filter(x => x.id !== id);
+  render();
+  toast('"' + f.name + '" 맛있게 드셨네요! 🍽️');
+  saveFoods();
+}
+
 /* ---------- 바텀시트 ---------- */
 let initSheet = false;
 function openSheet(id){
@@ -546,7 +624,7 @@ function openSheet(id){
   selCat = t ? t.category : categories[0];
   renderCatChips();
   const type = t ? t.cycleType : "일";
-  document.getElementById("fCycType").value = ["매일","일","주","월","요일","월일"].includes(type) ? type : "일";
+  document.getElementById("fCycType").value = ["한번","매일","일","주","월","요일","월일"].includes(type) ? type : "일";
   const v = t ? (Number(t.cycleValue) || 1) : 2;
   if (type === "요일") document.getElementById("fDow").value = String(v);
   else if (type === "월일") document.getElementById("fMDay").value = v;
@@ -581,7 +659,7 @@ function currentCycle(){
   let v = 1;
   if (type === "요일") v = parseInt(document.getElementById("fDow").value, 10);
   else if (type === "월일") v = Math.min(31, Math.max(1, parseInt(document.getElementById("fMDay").value, 10) || 1));
-  else if (type !== "매일") v = Math.max(1, parseInt(document.getElementById("fCycVal").value, 10) || 1);
+  else if (type !== "매일" && type !== "한번") v = Math.max(1, parseInt(document.getElementById("fCycVal").value, 10) || 1);
   return { type: type, value: v };
 }
 function syncCycUI(){
@@ -591,7 +669,7 @@ function syncCycUI(){
   const mday = document.getElementById("fMDay");
   const suf = document.getElementById("fCycSuffix");
   val.style.display = "none"; dow.style.display = "none"; mday.style.display = "none";
-  if (type === "매일"){ suf.textContent = ""; }
+  if (type === "매일" || type === "한번"){ suf.textContent = ""; }
   else if (type === "요일"){ dow.style.display = ""; suf.textContent = "마다"; }
   else if (type === "월일"){ mday.style.display = ""; suf.textContent = "일마다"; }
   else{
@@ -797,6 +875,41 @@ function renderManage(){
   return html;
 }
 
+function renderFoods(){
+  let html = `
+  <div class="cat-box" style="margin-bottom:18px">
+    <div class="food-form">
+      <input type="text" id="foodName" placeholder="음식 이름 (예: 우유)" maxlength="20">
+      <input type="date" id="foodExp" aria-label="유통기한">
+      <button onclick="addFood()">＋ 등록</button>
+    </div>
+  </div>`;
+
+  if (foods.length === 0){
+    html += '<div class="empty" style="padding:40px 20px"><div class="big">🥕</div><div class="msg disp">등록된 음식이 없어요</div><div class="sub">유통기한이 있는 음식을 등록해보세요</div></div>';
+    return html;
+  }
+
+  const sorted = [...foods].sort((a, b) => (a.expiry || "").localeCompare(b.expiry || ""));
+  const urgent = sorted.filter(f => diffDays(f.expiry, todayStr()) <= 3).length;
+  if (urgent > 0){
+    html += '<div class="sec-title" style="margin-top:0">⏰ 유통기한 임박한 음식 ' + urgent + '개 — 먼저 드세요!</div>';
+  }
+  html += sorted.map(f => {
+    const d = foodDday(f.expiry);
+    return `
+    <div class="up-item">
+      <div style="flex:1;min-width:0">
+        <div class="nm">${esc(f.name)}</div>
+        <div style="font-size:13px;color:var(--muted)">${prettyDate(f.expiry)}까지</div>
+      </div>
+      <span class="dd ${d.cls}">${d.txt}</span>
+      <button class="eat-btn" onclick="eatFood('${f.id}')">다 먹음 ✓</button>
+    </div>`;
+  }).join("");
+  return html;
+}
+
 function renderHistory(){
   const today = todayStr();
   const weekAgo = addDays(today, -6);
@@ -831,6 +944,7 @@ function render(){
   const titles = {
     today: '오늘의 <b>루틴</b>',
     upcoming: '앞으로 <b>7일</b>',
+    foods: '우리집 <b>음식</b>',
     manage: '루틴 <b>관리</b>',
     history: '나의 <b>기록</b>'
   };
@@ -843,6 +957,7 @@ function render(){
   }
   if (tab === "today") main.innerHTML = renderToday();
   else if (tab === "upcoming") main.innerHTML = renderUpcoming();
+  else if (tab === "foods") main.innerHTML = renderFoods();
   else if (tab === "manage") main.innerHTML = renderManage();
   else main.innerHTML = renderHistory();
 }
