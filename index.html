@@ -235,12 +235,13 @@
   .sheet h2{font-size:20px;margin-bottom:18px}
   .field{margin-bottom:16px}
   .field label{display:block;font-size:14px;font-weight:700;margin-bottom:7px;color:#6B6450}
-  .field input[type=text],.field input[type=number],.field select{
+  .field input[type=text],.field input[type=number],.field input[type=date],.field select{
     width:100%;min-height:52px;padding:0 14px;
     border:1.5px solid var(--line);border-radius:14px;
     font-size:16px;background:#fff;color:var(--ink);font-family:inherit;
   }
   .field input:focus,.field select:focus{outline:2px solid var(--green);border-color:transparent}
+  .field .hint{font-size:13px;color:var(--muted);margin-top:6px;padding-left:2px}
   .chips{display:flex;flex-wrap:wrap;gap:8px}
   .chips button{
     min-height:44px;padding:0 16px;border-radius:999px;
@@ -326,7 +327,8 @@
     </div>
     <div class="field">
       <label for="fNext">첫 시작일</label>
-      <input type="text" id="fNext" readonly style="background:#F1EDE2;color:var(--muted)" value="오늘부터 시작해요">
+      <input type="date" id="fNext">
+      <div class="hint" id="fNextHint">누르면 달력에서 고를 수 있어요</div>
     </div>
     <div class="sheet-acts">
       <button class="b-cancel" onclick="closeSheet()">취소</button>
@@ -535,6 +537,7 @@ function delCategory(name){
 }
 
 /* ---------- 바텀시트 ---------- */
+let initSheet = false;
 function openSheet(id){
   editingId = id || null;
   const t = editingId ? tasks.find(x => x.id === editingId) : null;
@@ -548,7 +551,12 @@ function openSheet(id){
   if (type === "요일") document.getElementById("fDow").value = String(v);
   else if (type === "월일") document.getElementById("fMDay").value = v;
   else document.getElementById("fCycVal").value = (type === "매일") ? 1 : v;
+  const fn = document.getElementById("fNext");
+  fn.min = todayStr();               // 과거 날짜는 달력에서 선택 불가
+  fn.value = t ? t.nextDate : "";    // 수정 시엔 기존 예정일 유지
+  initSheet = true;
   syncCycUI();
+  initSheet = false;
   document.getElementById("sheetBg").classList.add("show");
 }
 function closeSheet(){
@@ -590,42 +598,84 @@ function syncCycUI(){
     val.style.display = "";
     suf.textContent = { "일":"일마다", "주":"주마다", "월":"개월마다" }[type];
   }
-  updateFirstDatePreview();
+  const fn = document.getElementById("fNext");
+  if (initSheet){
+    if (!fn.value) fn.value = defaultFirstDate();  // 새 루틴: 가장 가까운 날로 기본 설정
+    updateHint();
+  }else{
+    snapFirstDate();  // 주기를 바꾸면 고른 날짜를 주기에 맞게 보정
+  }
 }
-function updateFirstDatePreview(){
+function defaultFirstDate(){
+  const c = currentCycle();
+  return firstDateFor(c.type, c.value);
+}
+// 고른 날짜가 주기와 안 맞으면(예: 매주 월요일인데 수요일 선택) 가까운 맞는 날로 이동
+function snapFirstDate(){
   const el = document.getElementById("fNext");
   const c = currentCycle();
-  if (editingId){
-    const t = tasks.find(x => x.id === editingId);
-    if (t && t.cycleType === c.type && Number(t.cycleValue) === c.value){
-      el.value = prettyDate(t.nextDate) + " 예정 (변동 없음)";
-      return;
-    }
-    el.value = prettyDate(firstDateFor(c.type, c.value)) + " 부터 다시 시작";
-    return;
+  if (!el.value){ el.value = defaultFirstDate(); updateHint(); return; }
+  let v = el.value;
+  if (v < todayStr()){
+    v = todayStr();
+    toast("오늘 이후 날짜만 고를 수 있어요");
   }
-  const first = firstDateFor(c.type, c.value);
-  el.value = (first === todayStr()) ? "오늘부터 시작해요" : prettyDate(first) + " 시작 (" + relLabel(first) + ")";
+  if (c.type === "요일"){
+    const snapped = nextWeekday(v, c.value, true);
+    if (snapped !== v){
+      toast("매주 " + DOW[c.value] + "요일이라 " + prettyDate(snapped) + "로 맞췄어요");
+      v = snapped;
+    }
+  }else if (c.type === "월일"){
+    const snapped = nextMonthDay(v, c.value, true);
+    if (snapped !== v){
+      toast("매월 " + c.value + "일이라 " + prettyDate(snapped) + "로 맞췄어요");
+      v = snapped;
+    }
+  }
+  el.value = v;
+  updateHint();
+}
+function updateHint(){
+  const el = document.getElementById("fNext");
+  const h = document.getElementById("fNextHint");
+  if (el.value){
+    h.textContent = prettyDate(el.value) + " (" + relLabel(el.value) + ") 시작";
+  }else{
+    h.textContent = "누르면 달력에서 고를 수 있어요";
+  }
 }
 document.getElementById("fCycType").addEventListener("change", syncCycUI);
-document.getElementById("fDow").addEventListener("change", updateFirstDatePreview);
-document.getElementById("fMDay").addEventListener("input", updateFirstDatePreview);
-document.getElementById("fCycVal").addEventListener("input", updateFirstDatePreview);
+document.getElementById("fDow").addEventListener("change", snapFirstDate);
+document.getElementById("fMDay").addEventListener("change", snapFirstDate);
+document.getElementById("fCycVal").addEventListener("change", updateHint);
+document.getElementById("fNext").addEventListener("change", snapFirstDate);
+
+// 저장 시 최종 시작일 확정 (비어있으면 기본값, 주기와 안 맞으면 보정)
+function finalFirstDate(c){
+  let v = document.getElementById("fNext").value;
+  if (!v) return firstDateFor(c.type, c.value);
+  if (!editingId && v < todayStr()) v = todayStr();
+  if (c.type === "요일") v = nextWeekday(v, c.value, true);
+  else if (c.type === "월일") v = nextMonthDay(v, c.value, true);
+  return v;
+}
 
 document.getElementById("fSave").addEventListener("click", () => {
   const name = document.getElementById("fName").value.trim();
   if (!name){ toast("이름을 입력해주세요"); return; }
   const c = currentCycle();
 
+  const picked = finalFirstDate(c);
+
   if (editingId){
     const t = tasks.find(x => x.id === editingId);
     if (t){
       t.name = name;
       t.category = selCat;
-      const cycleChanged = (t.cycleType !== c.type) || (Number(t.cycleValue) !== c.value);
       t.cycleType = c.type;
       t.cycleValue = c.value;
-      if (cycleChanged) t.nextDate = firstDateFor(c.type, c.value);
+      t.nextDate = picked;
     }
     toast("수정했어요");
   }else{
@@ -635,7 +685,7 @@ document.getElementById("fSave").addEventListener("click", () => {
       category: selCat,
       cycleType: c.type,
       cycleValue: c.value,
-      nextDate: firstDateFor(c.type, c.value)
+      nextDate: picked
     });
     toast("루틴을 추가했어요 🌱");
   }
