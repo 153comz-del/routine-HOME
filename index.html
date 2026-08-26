@@ -209,6 +209,38 @@
   }
   .eat-btn:active{background:var(--green-deep)}
 
+  /* ===== 곧 할 일 메모 ===== */
+  .memo-add{display:flex;gap:8px;margin-bottom:4px}
+  .memo-add input{
+    flex:1;min-height:48px;padding:0 14px;
+    border:1.5px solid var(--line);border-radius:14px;
+    font-size:15px;background:#fff;color:var(--ink);font-family:inherit;
+  }
+  .memo-add input:focus{outline:2px solid var(--green);border-color:transparent}
+  .memo-add button{
+    min-height:48px;padding:0 18px;border:none;border-radius:14px;
+    background:var(--green);color:#fff;font-size:15px;font-weight:700;
+    cursor:pointer;font-family:inherit;white-space:nowrap;
+  }
+  .memo-item{
+    background:var(--card);border-radius:14px;box-shadow:var(--shadow);
+    padding:10px 10px 10px 16px;margin-top:8px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .memo-item .nm{flex:1;font-weight:600;word-break:keep-all}
+  .memo-done{
+    min-width:64px;min-height:44px;border:none;border-radius:12px;
+    background:var(--green);color:#fff;font-size:14px;font-weight:700;
+    cursor:pointer;font-family:inherit;
+  }
+  .memo-done:active{background:var(--green-deep)}
+  .memo-x{
+    width:44px;height:44px;border:none;border-radius:12px;
+    background:#EFEBDF;color:#8A8266;font-size:17px;font-weight:700;
+    cursor:pointer;font-family:inherit;line-height:1;
+  }
+  .memo-x:active{background:var(--coral-bg);color:var(--coral)}
+
   /* ===== 기록 화면 ===== */
   .summary{
     background:linear-gradient(135deg,#4C7A5A,#5E8E6C);
@@ -614,6 +646,40 @@ function eatFood(id){
   saveFoods();
 }
 
+/* ---------- 곧 할 일 메모 동작 ---------- */
+// 메모는 tasks 배열에 cycleType "메모"로 함께 저장돼요 (별도 시트 불필요)
+function addMemo(){
+  const input = document.getElementById("memoInput");
+  const name = (input.value || "").trim();
+  if (!name){ toast("할 일을 적어주세요"); return; }
+  tasks.push({
+    id: "m" + Date.now() + Math.floor(Math.random()*1000),
+    name: name,
+    category: "메모",
+    cycleType: "메모",
+    cycleValue: 1,
+    nextDate: todayStr()
+  });
+  render();
+  toast("적어뒀어요 🗒️");
+  saveTasks();
+}
+function doneMemo(id){
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  addLog(t.name, "완료");
+  tasks = tasks.filter(x => x.id !== id);
+  render();
+  toast("완료! 하나 해치웠어요 ✨");
+  saveTasks();
+}
+function removeMemo(id){
+  tasks = tasks.filter(x => x.id !== id);
+  render();
+  toast("메모를 지웠어요");
+  saveTasks();
+}
+
 /* ---------- 바텀시트 ---------- */
 let initSheet = false;
 function openSheet(id){
@@ -791,30 +857,48 @@ function skeletons(n){
 function renderToday(){
   const today = todayStr();
   const due = tasks
-    .filter(t => t.nextDate && diffDays(t.nextDate, today) <= 0)
+    .filter(t => t.cycleType !== "메모" && t.nextDate && diffDays(t.nextDate, today) <= 0)
     .sort((a, b) => diffDays(a.nextDate, today) - diffDays(b.nextDate, today)); // 많이 밀린 것 위로
+  const memos = tasks.filter(t => t.cycleType === "메모");
 
+  let html = "";
   if (due.length === 0){
-    return '<div class="empty"><div class="big">🎉</div><div class="msg disp">오늘은 쉬는 날이에요</div><div class="sub">해야 할 루틴이 없어요. 푹 쉬세요!</div></div>';
+    html += '<div class="empty" style="padding:44px 20px 32px"><div class="big">🎉</div><div class="msg disp">오늘은 쉬는 날이에요</div><div class="sub">해야 할 루틴이 없어요. 푹 쉬세요!</div></div>';
+  }else{
+    html += due.map(t => {
+      const late = -diffDays(t.nextDate, today);
+      return `
+      <div class="card">
+        <div class="top">
+          <div class="name">${esc(t.name)}</div>
+          ${late > 0 ? `<span class="badge-late">${late}일 밀림</span>` : ""}
+          <span class="badge-cat" data-c="${esc(t.category)}">${esc(t.category)}</span>
+        </div>
+        <div class="cycle">${cycleText(t)} 반복</div>
+        <div class="btnrow">
+          <button class="b-done" onclick="doComplete('${t.id}')">완료 ✓</button>
+          <button class="b-tmrw" onclick="doPostpone('${t.id}',1)">내일로 🌙</button>
+          <button class="b-week" onclick="doPostpone('${t.id}',7)">다음 주로</button>
+        </div>
+      </div>`;
+    }).join("");
   }
 
-  return due.map(t => {
-    const late = -diffDays(t.nextDate, today);
-    return `
-    <div class="card">
-      <div class="top">
-        <div class="name">${esc(t.name)}</div>
-        ${late > 0 ? `<span class="badge-late">${late}일 밀림</span>` : ""}
-        <span class="badge-cat" data-c="${esc(t.category)}">${esc(t.category)}</span>
-      </div>
-      <div class="cycle">${cycleText(t)} 반복</div>
-      <div class="btnrow">
-        <button class="b-done" onclick="doComplete('${t.id}')">완료 ✓</button>
-        <button class="b-tmrw" onclick="doPostpone('${t.id}',1)">내일로 🌙</button>
-        <button class="b-week" onclick="doPostpone('${t.id}',7)">다음 주로</button>
-      </div>
-    </div>`;
-  }).join("");
+  // 곧 할 일 메모 (날짜 없이 가볍게)
+  html += '<div class="sec-title">🗒️ 곧 할 일 메모</div>';
+  html += '<div class="memo-add">';
+  html += '<input type="text" id="memoInput" placeholder="가볍게 적어두기 (예: 건전지 사기)" maxlength="40" onkeydown="if(event.key===\'Enter\')addMemo()">';
+  html += '<button onclick="addMemo()">추가</button>';
+  html += '</div>';
+  if (memos.length > 0){
+    html += memos.map(t => `
+    <div class="memo-item">
+      <span class="nm">${esc(t.name)}</span>
+      <button class="memo-done" onclick="doneMemo('${t.id}')">✓ 완료</button>
+      <button class="memo-x" onclick="removeMemo('${t.id}')" aria-label="지우기">×</button>
+    </div>`).join("");
+  }
+  return html;
 }
 
 function renderUpcoming(){
@@ -823,7 +907,7 @@ function renderUpcoming(){
   let any = false;
   for (let i = 1; i <= 7; i++){
     const day = addDays(today, i);
-    const list = tasks.filter(t => t.nextDate === day);
+    const list = tasks.filter(t => t.cycleType !== "메모" && t.nextDate === day);
     html += `<div class="day-head"><span class="d disp">${prettyDate(day)}</span><span class="rel">${relLabel(day)}</span></div>`;
     if (list.length === 0){
       html += '<div class="day-none">예정된 일이 없어요</div>';
@@ -844,10 +928,11 @@ function renderUpcoming(){
 
 function renderManage(){
   let html = '<button class="add-btn" onclick="openSheet()">＋ 새 루틴 추가</button>';
-  if (tasks.length === 0){
+  const routines = tasks.filter(t => t.cycleType !== "메모");
+  if (routines.length === 0){
     html += '<div class="empty" style="padding:36px 20px"><div class="big">🌱</div><div class="msg disp">첫 루틴을 만들어보세요</div><div class="sub">예: 이틀에 한 번 화분 물주기</div></div>';
   }else{
-    const sorted = [...tasks].sort((a, b) => (a.nextDate || "").localeCompare(b.nextDate || ""));
+    const sorted = [...routines].sort((a, b) => (a.nextDate || "").localeCompare(b.nextDate || ""));
     html += sorted.map(t => `
       <div class="mg-item">
         <div class="row1">
