@@ -191,6 +191,14 @@
     font-size:15px;background:#fff;color:var(--ink);font-family:inherit;
   }
   .food-form input:focus{outline:2px solid var(--green);border-color:transparent}
+  .food-row{display:flex;gap:8px}
+  .food-row .grow{flex:1;min-width:0}
+  .food-qty{width:86px;text-align:center}
+  .food-hint{font-size:12px;color:var(--muted);padding:0 4px}
+  .qty-badge{
+    font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;
+    background:#EAF1EA;color:var(--green);margin-left:6px;vertical-align:1px;white-space:nowrap;
+  }
   .food-form button{
     min-height:50px;border:none;border-radius:14px;
     background:var(--green);color:#fff;font-size:15px;font-weight:700;
@@ -406,7 +414,7 @@ const DOW = ["일","월","화","수","목","금","토"];
 
 let tasks = [];
 let logs = [];
-let foods = [];  // 음식 목록 { id, name, expiry }
+let foods = [];  // 음식 목록 { id, name, expiry(빈칸 가능), qty }
 let categories = DEFAULT_CATS.slice();  // 서버에서 불러오면 덮어씀
 let tab = "today";
 let loading = true;
@@ -506,22 +514,61 @@ function toast(msg){
 }
 
 /* ---------- API (백그라운드 저장: 순차 처리 + 자동 재시도) ---------- */
+/* 속도 개선: 마지막 화면을 폰에 저장해두고(캐시) 앱을 열면 즉시 보여준 뒤,
+   서버(구글 시트)에서 최신 데이터를 뒤에서 조용히 받아와요.
+   진짜 데이터는 항상 구글 시트에 있으니, 캐시를 지워도 데이터는 안전해요. */
+const CACHE_KEY = "routine-cache-v1";
+let dirty = false;  // 캐시 화면에서 사용자가 뭔가 바꿨으면 true (서버 응답이 덮어쓰지 않게)
+
+function saveCache(){
+  try{
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      tasks: tasks, logs: logs, foods: foods, categories: categories
+    }));
+  }catch(e){ /* 저장 공간 문제 등은 조용히 무시 - 캐시는 있으면 좋은 것일 뿐 */ }
+}
+function loadCache(){
+  try{
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    tasks = Array.isArray(d.tasks) ? d.tasks : [];
+    logs = Array.isArray(d.logs) ? d.logs : [];
+    foods = Array.isArray(d.foods) ? d.foods : [];
+    if (Array.isArray(d.categories) && d.categories.length > 0){
+      categories = d.categories.map(String);
+    }
+    return true;
+  }catch(e){ return false; }
+}
+
 async function loadAll(){
-  loading = true;
+  // 1단계: 캐시가 있으면 즉시 화면부터 (스켈레톤 없이)
+  const hasCache = loadCache();
+  loading = !hasCache;
+  dirty = false;
   render();
+  // 2단계: 서버에서 최신 데이터 받아오기
   try{
     const res = await fetch(API);
     const data = await res.json();
     if (!data.ok) throw new Error("서버 응답 오류");
-    tasks = Array.isArray(data.tasks) ? data.tasks : [];
-    logs = Array.isArray(data.logs) ? data.logs : [];
-    foods = Array.isArray(data.foods) ? data.foods : [];
-    if (Array.isArray(data.categories) && data.categories.length > 0){
-      categories = data.categories.map(String);
+    if (!dirty){
+      // 캐시 화면을 보는 동안 아무것도 안 바꿨을 때만 서버 데이터로 갱신
+      tasks = Array.isArray(data.tasks) ? data.tasks : [];
+      logs = Array.isArray(data.logs) ? data.logs : [];
+      foods = Array.isArray(data.foods) ? data.foods : [];
+      if (Array.isArray(data.categories) && data.categories.length > 0){
+        categories = data.categories.map(String);
+      }
+      saveCache();
     }
   }catch(e){
-    toast("데이터를 불러오지 못했어요. 새로고침 해주세요");
-    tasks = []; logs = []; foods = [];
+    if (!hasCache){
+      toast("데이터를 불러오지 못했어요. 새로고침 해주세요");
+      tasks = []; logs = []; foods = [];
+    }
+    // 캐시가 있으면 그대로 보여주면 되니 조용히 넘어가요
   }
   loading = false;
   render();
@@ -544,12 +591,13 @@ function post(payload, failMsg){
     }
   });
 }
-function saveTasks(){ post({ action:"saveTasks", tasks: tasks }, "저장에 실패했어요 (연결 확인)"); }
-function saveCategories(){ post({ action:"saveCategories", categories: categories }, "카테고리 저장에 실패했어요"); }
-function saveFoods(){ post({ action:"saveFoods", foods: foods }, "음식 저장에 실패했어요"); }
+function saveTasks(){ dirty = true; saveCache(); post({ action:"saveTasks", tasks: tasks }, "저장에 실패했어요 (연결 확인)"); }
+function saveCategories(){ dirty = true; saveCache(); post({ action:"saveCategories", categories: categories }, "카테고리 저장에 실패했어요"); }
+function saveFoods(){ dirty = true; saveCache(); post({ action:"saveFoods", foods: foods }, "음식 저장에 실패했어요"); }
 function addLog(name, type){
   const log = { date: todayStr(), name: name, type: type };
   logs.unshift(log);
+  dirty = true; saveCache();
   post({ action:"addLog", log: log }, "기록 저장에 실패했어요");
 }
 
@@ -615,6 +663,7 @@ function delCategory(name){
 
 /* ---------- 음식 동작 ---------- */
 function foodDday(expiry){
+  if (!expiry) return { txt: "기한 없음", cls: "" };
   const n = diffDays(expiry, todayStr());
   if (n < 0) return { txt: (-n) + "일 지남", cls: "bad" };
   if (n === 0) return { txt: "오늘까지", cls: "bad" };
@@ -624,25 +673,37 @@ function foodDday(expiry){
 function addFood(){
   const nameEl = document.getElementById("foodName");
   const expEl = document.getElementById("foodExp");
+  const qtyEl = document.getElementById("foodQty");
   const name = (nameEl.value || "").trim();
-  const exp = expEl.value;
+  const exp = expEl.value;  // 비워두면 유통기한 없음
+  let qty = parseInt(qtyEl.value, 10);
   if (!name){ toast("음식 이름을 입력해주세요"); return; }
-  if (!exp){ toast("유통기한을 선택해주세요"); return; }
+  if (!qty || qty < 1) qty = 1;
+  if (qty > 99) qty = 99;
   foods.push({
     id: "f" + Date.now() + Math.floor(Math.random()*1000),
     name: name,
-    expiry: exp
+    expiry: exp || "",
+    qty: qty
   });
   render();
-  toast('"' + name + '" 등록! 유통기한 챙겨드릴게요 🥕');
+  const qtyMsg = qty > 1 ? " " + qty + "개" : "";
+  toast('"' + name + '"' + qtyMsg + ' 등록! ' + (exp ? '유통기한 챙겨드릴게요 🥕' : '잘 기억해둘게요 🥕'));
   saveFoods();
 }
 function eatFood(id){
   const f = foods.find(x => x.id === id);
   if (!f) return;
-  foods = foods.filter(x => x.id !== id);
-  render();
-  toast('"' + f.name + '" 맛있게 드셨네요! 🍽️');
+  const qty = Number(f.qty) || 1;
+  if (qty > 1){
+    f.qty = qty - 1;
+    render();
+    toast('"' + f.name + '" 하나 드셨네요! ' + f.qty + '개 남았어요 🍽️');
+  } else {
+    foods = foods.filter(x => x.id !== id);
+    render();
+    toast('"' + f.name + '" 맛있게 드셨네요! 🍽️');
+  }
   saveFoods();
 }
 
@@ -965,31 +1026,39 @@ function renderFoods(){
   <div class="cat-box" style="margin-bottom:18px">
     <div class="food-form">
       <input type="text" id="foodName" placeholder="음식 이름 (예: 우유)" maxlength="20">
-      <input type="date" id="foodExp" aria-label="유통기한">
+      <div class="food-row">
+        <input type="date" id="foodExp" class="grow" aria-label="유통기한">
+        <input type="number" id="foodQty" class="food-qty" value="1" min="1" max="99" inputmode="numeric" aria-label="개수">
+      </div>
+      <div class="food-hint">유통기한이 없으면 날짜는 비워두세요 · 오른쪽은 개수</div>
       <button onclick="addFood()">＋ 등록</button>
     </div>
   </div>`;
 
   if (foods.length === 0){
-    html += '<div class="empty" style="padding:40px 20px"><div class="big">🥕</div><div class="msg disp">등록된 음식이 없어요</div><div class="sub">유통기한이 있는 음식을 등록해보세요</div></div>';
+    html += '<div class="empty" style="padding:40px 20px"><div class="big">🥕</div><div class="msg disp">등록된 음식이 없어요</div><div class="sub">냉장고 속 음식을 등록해보세요</div></div>';
     return html;
   }
 
-  const sorted = [...foods].sort((a, b) => (a.expiry || "").localeCompare(b.expiry || ""));
-  const urgent = sorted.filter(f => diffDays(f.expiry, todayStr()) <= 3).length;
+  // 유통기한 가까운 순, 기한 없는 음식은 맨 아래로
+  const sorted = [...foods].sort((a, b) => (a.expiry || "9999-12-31").localeCompare(b.expiry || "9999-12-31"));
+  const urgent = sorted.filter(f => f.expiry && diffDays(f.expiry, todayStr()) <= 3).length;
   if (urgent > 0){
     html += '<div class="sec-title" style="margin-top:0">⏰ 유통기한 임박한 음식 ' + urgent + '개 — 먼저 드세요!</div>';
   }
   html += sorted.map(f => {
     const d = foodDday(f.expiry);
+    const qty = Number(f.qty) || 1;
+    const qtyBadge = qty > 1 ? '<span class="qty-badge">×' + qty + '</span>' : '';
+    const dateLine = f.expiry ? (prettyDate(f.expiry) + "까지") : "유통기한 없음";
     return `
     <div class="up-item">
       <div style="flex:1;min-width:0">
-        <div class="nm">${esc(f.name)}</div>
-        <div style="font-size:13px;color:var(--muted)">${prettyDate(f.expiry)}까지</div>
+        <div class="nm">${esc(f.name)}${qtyBadge}</div>
+        <div style="font-size:13px;color:var(--muted)">${dateLine}</div>
       </div>
       <span class="dd ${d.cls}">${d.txt}</span>
-      <button class="eat-btn" onclick="eatFood('${f.id}')">다 먹음 ✓</button>
+      <button class="eat-btn" onclick="eatFood('${f.id}')">${qty > 1 ? "하나 먹음 ✓" : "다 먹음 ✓"}</button>
     </div>`;
   }).join("");
   return html;
