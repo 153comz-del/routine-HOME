@@ -274,6 +274,11 @@
   .log-item .dt{font-size:13px;color:var(--muted);min-width:78px}
   .log-item .nm{flex:1;font-weight:600}
   .log-type{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
+  .log-del{
+    min-width:40px;min-height:40px;border:none;border-radius:10px;
+    background:transparent;color:#C9C3B2;font-size:18px;cursor:pointer;font-family:inherit;
+  }
+  .log-del:active{background:var(--coral-bg);color:var(--coral)}
   .log-type[data-t="완료"]{background:#E4F0E3;color:var(--green)}
   .log-type[data-t="미룸"]{background:#FBF0D9;color:#B07B2E}
 
@@ -477,6 +482,9 @@ function normDate(s){
     const y = new Date().getFullYear();
     return y + "-" + String(m[1]).padStart(2,"0") + "-" + String(m[2]).padStart(2,"0");
   }
+  // 마지막 수단: 영어 형식(Sat Aug 29 2026 ... GMT+0900)도 브라우저에게 읽혀보기
+  const d2 = new Date(s);
+  if (!isNaN(d2.getTime()) && d2.getFullYear() >= 2000 && d2.getFullYear() <= 2100) return fmt(d2);
   return "";
 }
 function normAllDates(){
@@ -1149,14 +1157,27 @@ function renderHistory(){
     return html;
   }
 
-  const sorted = [...logs].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  html += sorted.slice(0, 100).map(l => `
+  const sorted = logs.map((l, i) => ({ l: l, i: i }))
+    .sort((a, b) => (b.l.date || "").localeCompare(a.l.date || ""));
+  html += sorted.slice(0, 100).map(x => `
     <div class="log-item">
-      <span class="dt">${l.date ? prettyDate(l.date) : ""}</span>
-      <span class="nm">${esc(l.name)}</span>
-      <span class="log-type" data-t="${esc(l.type)}">${esc(l.type)}</span>
+      <span class="dt">${x.l.date ? prettyDate(x.l.date) : ""}</span>
+      <span class="nm">${esc(x.l.name)}</span>
+      <span class="log-type" data-t="${esc(x.l.type)}">${esc(x.l.type)}</span>
+      <button class="log-del" onclick="delLog(${x.i})" aria-label="기록 삭제">✕</button>
     </div>`).join("");
   return html;
+}
+
+function delLog(i){
+  const l = logs[i];
+  if (!l) return;
+  if (!confirm('"' + l.name + '" ' + l.type + ' 기록을 지울까요?')) return;
+  logs.splice(i, 1);
+  dirty = true; saveCache();
+  render();
+  toast("기록을 지웠어요");
+  post({ action:"deleteLog", log: { date: l.date, name: l.name, type: l.type } }, "기록 삭제에 실패했어요");
 }
 
 function render(){
