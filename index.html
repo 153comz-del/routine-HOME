@@ -216,6 +216,15 @@
     cursor:pointer;font-family:inherit;white-space:nowrap;
   }
   .eat-btn:active{background:var(--green-deep)}
+  .food-edit-btn{
+    min-height:44px;min-width:44px;padding:0 10px;border:1.5px solid var(--line);border-radius:12px;
+    background:#fff;color:var(--muted);font-size:16px;cursor:pointer;font-family:inherit;
+  }
+  .food-cancel-btn{
+    min-height:50px;border:1.5px solid var(--line);border-radius:14px;
+    background:#fff;color:var(--muted);font-size:15px;font-weight:700;
+    cursor:pointer;font-family:inherit;
+  }
 
   /* ===== 곧 할 일 메모 ===== */
   .memo-add{display:flex;gap:8px;margin-bottom:4px}
@@ -419,6 +428,7 @@ let categories = DEFAULT_CATS.slice();  // 서버에서 불러오면 덮어씀
 let tab = "today";
 let loading = true;
 let editingId = null;   // null = 추가 모드
+let editingFoodId = null;  // 음식 수정 중이면 해당 id
 let selCat = "집안일";
 
 /* ---------- 날짜 유틸 ---------- */
@@ -624,9 +634,9 @@ function post(payload, failMsg){
     }
   });
 }
-function saveTasks(){ dirty = true; saveCache(); post({ action:"saveTasks", tasks: tasks }, "저장에 실패했어요 (연결 확인)"); }
+function saveTasks(){ normAllDates(); dirty = true; saveCache(); post({ action:"saveTasks", tasks: tasks }, "저장에 실패했어요 (연결 확인)"); }
 function saveCategories(){ dirty = true; saveCache(); post({ action:"saveCategories", categories: categories }, "카테고리 저장에 실패했어요"); }
-function saveFoods(){ dirty = true; saveCache(); post({ action:"saveFoods", foods: foods }, "음식 저장에 실패했어요"); }
+function saveFoods(){ normAllDates(); dirty = true; saveCache(); post({ action:"saveFoods", foods: foods }, "음식 저장에 실패했어요"); }
 function addLog(name, type){
   const log = { date: todayStr(), name: name, type: type };
   logs.unshift(log);
@@ -713,16 +723,34 @@ function addFood(){
   if (!name){ toast("음식 이름을 입력해주세요"); return; }
   if (!qty || qty < 1) qty = 1;
   if (qty > 99) qty = 99;
-  foods.push({
-    id: "f" + Date.now() + Math.floor(Math.random()*1000),
-    name: name,
-    expiry: exp || "",
-    qty: qty
-  });
-  render();
-  const qtyMsg = qty > 1 ? " " + qty + "개" : "";
-  toast('"' + name + '"' + qtyMsg + ' 등록! ' + (exp ? '유통기한 챙겨드릴게요 🥕' : '잘 기억해둘게요 🥕'));
+  if (editingFoodId){
+    // 수정 모드: 기존 음식 정보 갱신
+    const f = foods.find(x => x.id === editingFoodId);
+    if (f){ f.name = name; f.expiry = exp || ""; f.qty = qty; }
+    editingFoodId = null;
+    render();
+    toast('"' + name + '" 수정했어요 ✏️');
+  } else {
+    foods.push({
+      id: "f" + Date.now() + Math.floor(Math.random()*1000),
+      name: name,
+      expiry: exp || "",
+      qty: qty
+    });
+    render();
+    const qtyMsg = qty > 1 ? " " + qty + "개" : "";
+    toast('"' + name + '"' + qtyMsg + ' 등록! ' + (exp ? '유통기한 챙겨드릴게요 🥕' : '잘 기억해둘게요 🥕'));
+  }
   saveFoods();
+}
+function editFood(id){
+  editingFoodId = id;
+  render();
+  window.scrollTo(0, 0);
+}
+function cancelFoodEdit(){
+  editingFoodId = null;
+  render();
 }
 function eatFood(id){
   const f = foods.find(x => x.id === id);
@@ -733,6 +761,7 @@ function eatFood(id){
     render();
     toast('"' + f.name + '" 하나 드셨네요! ' + f.qty + '개 남았어요 🍽️');
   } else {
+    if (editingFoodId === id) editingFoodId = null;
     foods = foods.filter(x => x.id !== id);
     render();
     toast('"' + f.name + '" 맛있게 드셨네요! 🍽️');
@@ -1055,16 +1084,22 @@ function renderManage(){
 }
 
 function renderFoods(){
+  const editing = editingFoodId ? foods.find(x => x.id === editingFoodId) : null;
+  const eName = editing ? esc(editing.name) : "";
+  const eExp = editing ? (editing.expiry || "") : "";
+  const eQty = editing ? (Number(editing.qty) || 1) : 1;
   let html = `
   <div class="cat-box" style="margin-bottom:18px">
     <div class="food-form">
-      <input type="text" id="foodName" placeholder="음식 이름 (예: 우유)" maxlength="20">
+      ${editing ? '<div class="food-hint" style="font-weight:700;color:var(--green)">✏️ "' + eName + '" 수정 중</div>' : ''}
+      <input type="text" id="foodName" placeholder="음식 이름 (예: 우유)" maxlength="20" value="${eName}">
       <div class="food-row">
-        <input type="date" id="foodExp" class="grow" aria-label="유통기한">
-        <input type="number" id="foodQty" class="food-qty" value="1" min="1" max="99" inputmode="numeric" aria-label="개수">
+        <input type="date" id="foodExp" class="grow" aria-label="유통기한" value="${eExp}">
+        <input type="number" id="foodQty" class="food-qty" value="${eQty}" min="1" max="99" inputmode="numeric" aria-label="개수">
       </div>
       <div class="food-hint">유통기한이 없으면 날짜는 비워두세요 · 오른쪽은 개수</div>
-      <button onclick="addFood()">＋ 등록</button>
+      <button onclick="addFood()">${editing ? '수정 저장' : '＋ 등록'}</button>
+      ${editing ? '<button class="food-cancel-btn" onclick="cancelFoodEdit()">취소</button>' : ''}
     </div>
   </div>`;
 
@@ -1091,6 +1126,7 @@ function renderFoods(){
         <div style="font-size:13px;color:var(--muted)">${dateLine}</div>
       </div>
       <span class="dd ${d.cls}">${d.txt}</span>
+      <button class="food-edit-btn" onclick="editFood('${f.id}')" aria-label="수정">✏️</button>
       <button class="eat-btn" onclick="eatFood('${f.id}')">${qty > 1 ? "하나 먹음 ✓" : "다 먹음 ✓"}</button>
     </div>`;
   }).join("");
