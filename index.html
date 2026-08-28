@@ -130,6 +130,11 @@
     display:flex;align-items:center;gap:10px;
   }
   .up-item .nm{flex:1;font-weight:600}
+  /* 유통기한 지난 음식: 밀린 루틴 카드와 같은 살구빛 강조 */
+  .up-item.expired{
+    background:linear-gradient(135deg,#FDF3EA,#FBEDE2);
+    border-left:4px solid #E8A87C;
+  }
   .day-none{font-size:14px;color:var(--muted);padding:4px 6px 2px}
 
   /* ===== 관리 화면 ===== */
@@ -722,7 +727,7 @@ function delCategory(name){
 function foodDday(expiry){
   if (!expiry) return { txt: "기한 없음", cls: "" };
   const n = diffDays(expiry, todayStr());
-  if (n < 0) return { txt: (-n) + "일 지남", cls: "bad" };
+  if (n < 0) return { txt: (-n) + "일 지남", cls: "bad", expired: true };
   if (n === 0) return { txt: "오늘까지", cls: "bad" };
   if (n <= 3) return { txt: "D-" + n, cls: "warn" };
   return { txt: "D-" + n, cls: "" };
@@ -1134,7 +1139,7 @@ function renderFoods(){
     const qtyBadge = qty > 1 ? '<span class="qty-badge">×' + qty + '</span>' : '';
     const dateLine = f.expiry ? (prettyDate(f.expiry) + "까지") : "유통기한 없음";
     return `
-    <div class="up-item">
+    <div class="up-item${d.expired ? " expired" : ""}">
       <div style="flex:1;min-width:0">
         <div class="nm">${esc(f.name)}${qtyBadge}</div>
         <div style="font-size:13px;color:var(--muted)">${dateLine}</div>
