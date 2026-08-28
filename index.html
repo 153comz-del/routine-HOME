@@ -61,6 +61,11 @@
 
   .card .top{display:flex;align-items:flex-start;gap:8px;margin-bottom:12px}
   .card .name{font-size:18px;font-weight:600;flex:1;word-break:keep-all}
+  /* 밀린 루틴 카드: 따뜻한 살구빛 배경 + 왼쪽 코랄 띠 (눈에 띄되 자극적이지 않게) */
+  .card.late{
+    background:linear-gradient(135deg,#FDF3EA,#FBEDE2);
+    border-left:4px solid #E8A87C;
+  }
   .badge-cat{
     font-size:12px;padding:3px 9px;border-radius:999px;white-space:nowrap;
     background:#EFEBDF;color:#7A7461;
@@ -1000,7 +1005,7 @@ function renderToday(){
     html += due.map(t => {
       const late = -diffDays(t.nextDate, today);
       return `
-      <div class="card">
+      <div class="card${late > 0 ? " late" : ""}">
         <div class="top">
           <div class="name">${esc(t.name)}</div>
           ${late > 0 ? `<span class="badge-late">${late}일 밀림</span>` : ""}
