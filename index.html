@@ -135,6 +135,11 @@
     background:linear-gradient(135deg,#FDF3EA,#FBEDE2);
     border-left:4px solid #E8A87C;
   }
+  /* 오늘까지인 음식: 지난 것보다 연한 톤 (지남 / 오늘까지 / 여유 3단계) */
+  .up-item.due-today{
+    background:linear-gradient(135deg,#FEFAF5,#FDF5EE);
+    border-left:4px solid #F2C9AE;
+  }
   .day-none{font-size:14px;color:var(--muted);padding:4px 6px 2px}
 
   /* ===== 관리 화면 ===== */
@@ -728,7 +733,7 @@ function foodDday(expiry){
   if (!expiry) return { txt: "기한 없음", cls: "" };
   const n = diffDays(expiry, todayStr());
   if (n < 0) return { txt: (-n) + "일 지남", cls: "bad", expired: true };
-  if (n === 0) return { txt: "오늘까지", cls: "bad" };
+  if (n === 0) return { txt: "오늘까지", cls: "bad", dueToday: true };
   if (n <= 3) return { txt: "D-" + n, cls: "warn" };
   return { txt: "D-" + n, cls: "" };
 }
@@ -1139,7 +1144,7 @@ function renderFoods(){
     const qtyBadge = qty > 1 ? '<span class="qty-badge">×' + qty + '</span>' : '';
     const dateLine = f.expiry ? (prettyDate(f.expiry) + "까지") : "유통기한 없음";
     return `
-    <div class="up-item${d.expired ? " expired" : ""}">
+    <div class="up-item${d.expired ? " expired" : (d.dueToday ? " due-today" : "")}">
       <div style="flex:1;min-width:0">
         <div class="nm">${esc(f.name)}${qtyBadge}</div>
         <div style="font-size:13px;color:var(--muted)">${dateLine}</div>
