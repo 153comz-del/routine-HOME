@@ -130,16 +130,6 @@
     display:flex;align-items:center;gap:10px;
   }
   .up-item .nm{flex:1;font-weight:600}
-  /* 유통기한 지난 음식: 밀린 루틴 카드와 같은 살구빛 강조 */
-  .up-item.expired{
-    background:linear-gradient(135deg,#FDF3EA,#FBEDE2);
-    border-left:4px solid #E8A87C;
-  }
-  /* 오늘까지인 음식: 지난 것보다 연한 톤 (지남 / 오늘까지 / 여유 3단계) */
-  .up-item.due-today{
-    background:linear-gradient(135deg,#FEFAF5,#FDF5EE);
-    border-left:4px solid #F2C9AE;
-  }
   .day-none{font-size:14px;color:var(--muted);padding:4px 6px 2px}
 
   /* ===== 관리 화면 ===== */
@@ -193,6 +183,48 @@
     font-size:15px;background:#fff;color:var(--ink);font-family:inherit;
   }
   .cat-add input:focus{outline:2px solid var(--green);border-color:transparent}
+  /* ===== 저금통 ===== */
+  .bank-card{
+    background:var(--card);border-radius:14px;box-shadow:var(--shadow);
+    padding:14px 16px;margin-bottom:10px;
+  }
+  .bank-card .row{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .bank-card .nm{font-weight:700;flex:1;word-break:keep-all}
+  .bank-card .cnt{font-size:13px;color:var(--muted);font-weight:700;white-space:nowrap}
+  .bank-bar{height:12px;border-radius:999px;background:#EFEBDF;overflow:hidden}
+  .bank-fill{
+    height:100%;border-radius:999px;min-width:0;
+    background:linear-gradient(90deg,#F0C069,#E8A05C);
+    transition:width .5s ease;
+  }
+  .bank-card.full .bank-fill{background:linear-gradient(90deg,#8FBF9A,#4C7A5A)}
+  .bank-card.full .cnt{color:var(--green)}
+  .bank-del{
+    min-width:40px;min-height:40px;border:none;border-radius:10px;
+    background:transparent;color:#C9C3B2;font-size:18px;cursor:pointer;font-family:inherit;
+  }
+  .bank-del:active{background:var(--coral-bg);color:var(--coral)}
+  .bank-add{display:flex;gap:8px}
+  .bank-add input{
+    min-height:48px;padding:0 14px;
+    border:1.5px solid var(--line);border-radius:14px;
+    font-size:15px;background:#fff;color:var(--ink);font-family:inherit;
+  }
+  .bank-add input:focus{outline:2px solid var(--green);border-color:transparent}
+  .bank-add .bk-name{flex:1;min-width:0}
+  .bank-add .bk-target{width:96px;text-align:center}
+  .bank-add button{
+    min-height:48px;padding:0 18px;border:none;border-radius:14px;
+    background:var(--green);color:#fff;font-size:15px;font-weight:700;
+    cursor:pointer;font-family:inherit;
+  }
+  /* 예정 → 오늘로 당겨오기 버튼 */
+  .pull-btn{
+    min-height:40px;padding:0 12px;border:1.5px solid var(--line);border-radius:10px;
+    background:#fff;color:var(--green);font-size:13px;font-weight:700;
+    cursor:pointer;font-family:inherit;white-space:nowrap;
+  }
+  .pull-btn:active{background:#E4F0E3}
   .cat-add button{
     min-height:48px;padding:0 20px;border:none;border-radius:14px;
     background:var(--green);color:#fff;font-size:15px;font-weight:700;
@@ -445,6 +477,7 @@ const DOW = ["일","월","화","수","목","금","토"];
 let tasks = [];
 let logs = [];
 let foods = [];  // 음식 목록 { id, name, expiry(빈칸 가능), qty }
+let banks = [];  // 저금통 { id, name, target, current }
 let categories = DEFAULT_CATS.slice();  // 서버에서 불러오면 덮어씀
 let tab = "today";
 let loading = true;
@@ -588,7 +621,7 @@ let dirty = false;  // 캐시 화면에서 사용자가 뭔가 바꿨으면 true
 function saveCache(){
   try{
     localStorage.setItem(CACHE_KEY, JSON.stringify({
-      tasks: tasks, logs: logs, foods: foods, categories: categories
+      tasks: tasks, logs: logs, foods: foods, categories: categories, banks: banks
     }));
   }catch(e){ /* 저장 공간 문제 등은 조용히 무시 - 캐시는 있으면 좋은 것일 뿐 */ }
 }
@@ -600,6 +633,7 @@ function loadCache(){
     tasks = Array.isArray(d.tasks) ? d.tasks : [];
     logs = Array.isArray(d.logs) ? d.logs : [];
     foods = Array.isArray(d.foods) ? d.foods : [];
+    banks = Array.isArray(d.banks) ? d.banks : [];
     if (Array.isArray(d.categories) && d.categories.length > 0){
       categories = d.categories.map(String);
     }
@@ -624,6 +658,7 @@ async function loadAll(){
       tasks = Array.isArray(data.tasks) ? data.tasks : [];
       logs = Array.isArray(data.logs) ? data.logs : [];
       foods = Array.isArray(data.foods) ? data.foods : [];
+      banks = Array.isArray(data.banks) ? data.banks : [];
       if (Array.isArray(data.categories) && data.categories.length > 0){
         categories = data.categories.map(String);
       }
@@ -661,6 +696,7 @@ function post(payload, failMsg){
 function saveTasks(){ normAllDates(); dirty = true; saveCache(); post({ action:"saveTasks", tasks: tasks }, "저장에 실패했어요 (연결 확인)"); }
 function saveCategories(){ dirty = true; saveCache(); post({ action:"saveCategories", categories: categories }, "카테고리 저장에 실패했어요"); }
 function saveFoods(){ normAllDates(); dirty = true; saveCache(); post({ action:"saveFoods", foods: foods }, "음식 저장에 실패했어요"); }
+function saveBanks(){ dirty = true; saveCache(); post({ action:"saveBanks", banks: banks }, "저금통 저장에 실패했어요"); }
 function addLog(name, type){
   const log = { date: todayStr(), name: name, type: type };
   logs.unshift(log);
@@ -673,14 +709,15 @@ function doComplete(id){
   const t = tasks.find(x => x.id === id);
   if (!t) return;
   addLog(t.name, "완료");
+  const bankMsg = bumpBanks();
   if (t.cycleType === "한번"){
     tasks = tasks.filter(x => x.id !== id);
     render();
-    toast("완료! 한 번짜리 일이라 목록에서 정리했어요 ✨");
+    toast(bankMsg || "완료! 한 번짜리 일이라 목록에서 정리했어요 ✨");
   }else{
     t.nextDate = nextFromToday(t);
     render();
-    toast("완료! " + relLabel(t.nextDate) + " 다시 알려드릴게요 🌿");
+    toast(bankMsg || ("완료! " + relLabel(t.nextDate) + " 다시 알려드릴게요 🌿"));
   }
   saveTasks();
 }
@@ -732,8 +769,8 @@ function delCategory(name){
 function foodDday(expiry){
   if (!expiry) return { txt: "기한 없음", cls: "" };
   const n = diffDays(expiry, todayStr());
-  if (n < 0) return { txt: (-n) + "일 지남", cls: "bad", expired: true };
-  if (n === 0) return { txt: "오늘까지", cls: "bad", dueToday: true };
+  if (n < 0) return { txt: (-n) + "일 지남", cls: "bad" };
+  if (n === 0) return { txt: "오늘까지", cls: "bad" };
   if (n <= 3) return { txt: "D-" + n, cls: "warn" };
   return { txt: "D-" + n, cls: "" };
 }
@@ -815,9 +852,79 @@ function doneMemo(id){
   const t = tasks.find(x => x.id === id);
   if (!t) return;
   addLog(t.name, "완료");
+  const bankMsg = bumpBanks();
   tasks = tasks.filter(x => x.id !== id);
   render();
-  toast("완료! 하나 해치웠어요 ✨");
+  toast(bankMsg || "완료! 하나 해치웠어요 ✨");
+  saveTasks();
+}
+
+/* ---------- 저금통 ---------- */
+function bumpBanks(){
+  // 완료 1회 = 동전 1개. 아직 안 가득 찬 저금통에 쌓여요.
+  let bumped = null, justFull = null;
+  banks.forEach(b => {
+    const cur = Number(b.current) || 0;
+    const tgt = Number(b.target) || 0;
+    if (cur < tgt){
+      b.current = cur + 1;
+      if (!bumped) bumped = b;
+      if (b.current >= tgt) justFull = b;
+    }
+  });
+  if (bumped) saveBanks();
+  if (justFull) return '🎉 "' + justFull.name + '" 저금통이 가득 찼어요! 축하해요 🐷';
+  if (bumped) return '완료! 🪙 저금통에 +1 (' + bumped.current + '/' + bumped.target + ')';
+  return "";
+}
+function addBank(){
+  const nameEl = document.getElementById("bankName");
+  const tgtEl = document.getElementById("bankTarget");
+  const name = (nameEl.value || "").trim();
+  let target = parseInt(tgtEl.value, 10);
+  if (!name){ toast("저금통 이름을 입력해주세요"); return; }
+  if (!target || target < 1){ toast("목표 횟수를 입력해주세요 (예: 10)"); return; }
+  if (target > 9999) target = 9999;
+  banks.push({ id: "b" + Date.now(), name: name, target: target, current: 0 });
+  render();
+  toast('"' + name + '" 저금통을 만들었어요 🐷 완료할 때마다 쌓여요!');
+  saveBanks();
+}
+function delBank(id){
+  const b = banks.find(x => x.id === id);
+  if (!b) return;
+  if (!confirm('"' + b.name + '" 저금통을 없앨까요? (' + (Number(b.current)||0) + '/' + b.target + ')')) return;
+  banks = banks.filter(x => x.id !== id);
+  render();
+  toast("저금통을 정리했어요");
+  saveBanks();
+}
+function renderBanks(forToday){
+  if (banks.length === 0) return "";
+  return banks.map(b => {
+    const cur = Number(b.current) || 0;
+    const tgt = Number(b.target) || 1;
+    const full = cur >= tgt;
+    const pct = Math.min(100, Math.round(cur / tgt * 100));
+    return `
+    <div class="bank-card${full ? " full" : ""}">
+      <div class="row">
+        <span class="nm">🐷 ${esc(b.name)}</span>
+        <span class="cnt">${full ? "가득! 🎉 " : ""}${cur}/${tgt}</span>
+        ${forToday ? "" : `<button class="bank-del" onclick="delBank('${b.id}')" aria-label="저금통 삭제">✕</button>`}
+      </div>
+      <div class="bank-bar"><div class="bank-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join("");
+}
+
+/* ---------- 예정에서 오늘로 당겨오기 ---------- */
+function pullToday(id){
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  t.nextDate = todayStr();
+  render();
+  toast('"' + t.name + '" 오늘 할 일로 당겨왔어요 💪');
   saveTasks();
 }
 function removeMemo(id){
@@ -1009,6 +1116,7 @@ function renderToday(){
   const memos = tasks.filter(t => t.cycleType === "메모");
 
   let html = "";
+  html += renderBanks(true);  // 저금통 진행 상황
   if (due.length === 0){
     html += '<div class="empty" style="padding:44px 20px 32px"><div class="big">🎉</div><div class="msg disp">오늘은 쉬는 날이에요</div><div class="sub">해야 할 루틴이 없어요. 푹 쉬세요!</div></div>';
   }else{
@@ -1064,6 +1172,7 @@ function renderUpcoming(){
         <div class="up-item">
           <span class="nm">${esc(t.name)}</span>
           <span class="badge-cat" data-c="${esc(t.category)}">${esc(t.category)}</span>
+          <button class="pull-btn" onclick="pullToday('${t.id}')">오늘 하기 ⬆</button>
         </div>`).join("");
     }
   }
@@ -1093,6 +1202,19 @@ function renderManage(){
         </div>
       </div>`).join("");
   }
+
+  // 저금통 관리
+  html += '<div class="sec-title">🐷 저금통</div>';
+  if (banks.length > 0){
+    html += renderBanks(false);
+  } else {
+    html += '<div class="day-none" style="margin-bottom:10px">완료할 때마다 동전이 쌓이는 저금통을 만들어보세요</div>';
+  }
+  html += '<div class="cat-box"><div class="bank-add">';
+  html += '<input type="text" id="bankName" class="bk-name" placeholder="저금통 이름 (예: 8월 목표)" maxlength="15">';
+  html += '<input type="number" id="bankTarget" class="bk-target" placeholder="목표" min="1" max="9999" inputmode="numeric">';
+  html += '<button onclick="addBank()">추가</button>';
+  html += '</div></div>';
 
   // 카테고리 관리
   html += '<div class="sec-title">카테고리 관리</div>';
@@ -1144,7 +1266,7 @@ function renderFoods(){
     const qtyBadge = qty > 1 ? '<span class="qty-badge">×' + qty + '</span>' : '';
     const dateLine = f.expiry ? (prettyDate(f.expiry) + "까지") : "유통기한 없음";
     return `
-    <div class="up-item${d.expired ? " expired" : (d.dueToday ? " due-today" : "")}">
+    <div class="up-item">
       <div style="flex:1;min-width:0">
         <div class="nm">${esc(f.name)}${qtyBadge}</div>
         <div style="font-size:13px;color:var(--muted)">${dateLine}</div>
